@@ -5,7 +5,7 @@
 #pragma compile(UPX, true)
 #pragma compile(CompanyName, 'ООО Клиника ЛМС')
 #pragma compile(FileDescription, Приложение для создания отчетов по кнопкам лояльности)
-#pragma compile(LegalCopyright, Грашкин Павел Павлович - Нижний Новгород - 31-555 - )
+#pragma compile(LegalCopyright, Грашкин Павел Павлович - Нижний Новгород - 31-555 - nn-admin@nnkk.budzdorov.su)
 #pragma compile(ProductName, LoyaltySystemsChecker)
 
 
@@ -16,13 +16,17 @@
 #include <Date.au3>
 #include <File.au3>
 
-#Region ====== variables ======
-Local $sMailServerBackup = 
-Local $sMailLoginBackup = 
-Local $sMailPasswordBackup = 
-Local $sDeveloperEmail = 
 
-Local $sIniFileName = "settings.ini"
+$oMyError = ObjEvent("AutoIt.Error", "ComErrorHandle")
+
+
+#Region ====== variables ======
+Local $sMailServerBackup = ""
+Local $sMailLoginBackup = ""
+Local $sMailPasswordBackup = ""
+Local $sDeveloperEmail = ""
+
+Local $sIniFileName = @ScriptDir & "\settings.ini"
 If Not FileExists($sIniFileName) Then _
 		SendEmail("Не удается найти файл настроек: " & $sIniFileName, True)
 
@@ -55,16 +59,18 @@ Local $aNotifyDailyErrors = IniReadSection($sIniFileName, $sSectionNotifyDailyEr
 
 Local $sSectionDailyCheck = "daily_check"
 Local $aDailyCheck = IniReadSection($sIniFileName, $sSectionDailyCheck)
+
+Local $sSectionCommercialDepartment = "commercial_department"
+Local $aCommercialDepartmentMailAddresses = IniReadSection($sIniFileName, $sSectionCommercialDepartment)
+
+Local $sQuestionIDRecommendButton = "37"
+Local $sQuestionIDDoctorsQuality = "152"
+Local $sReportIDTotal = "TOTAL"
+Local $sReportIDPos = "POS"
+Local $sReportIDEmployee = "EMPLOYEE"
 #EndRegion ====== variables ======
 
-;~ _ArrayDisplay($aNotifyReports)
-;~ _ArrayDisplay($aNotifyReportsAlways)
-;~ _ArrayDisplay($aNotifyDailyErrors)
-;~ _ArrayDisplay($aDailyCheck)
 
-$oMyError = ObjEvent("AutoIt.Error", "ComErrorHandle")
-
-;~ _ArrayDisplay($CmdLine)
 
 If $CmdLine[0] Then
 	If $CmdLine[1] = "-week" Then SendReports("week")
@@ -79,35 +85,143 @@ EndIf
 
 
 
-
 Func GetDateFromNow($nValue)
 	Local $aTmpDate, $aTmpTime
 	_DateTimeSplit(_DateAdd('D', $nValue, _NowCalc()), $aTmpDate, $aTmpTime)
+	If StringLen($aTmpDate[3]) < 2 Then $aTmpDate[3] = "0" & $aTmpDate[3]
+	If StringLen($aTmpDate[2]) < 2 Then $aTmpDate[2] = "0" & $aTmpDate[2]
 	Return $aTmpDate[3] & "." & $aTmpDate[2] & "." & $aTmpDate[1]
 EndFunc
 
 
 Func SendReports($sPeriod)
-	Local $sDate1
-	Local $sDate2
+	Local $sDateBegin
+	Local $sDateEnd
 
 	If $sPeriod = "week" Then
-		$sDate1 = GetDateFromNow(-7)
-		$sDate2 = GetDateFromNow(-1)
+		$sDateBegin = GetDateFromNow(-7)
+		$sDateEnd = GetDateFromNow(-1)
 	ElseIf $sPeriod = "month" Then
-		$sDate1 = "01" & StringRight(GetDateFromNow(-1), 8)
-		$sDate2 = GetDateFromNow(-1)
+		$sDateBegin = "01" & StringRight(GetDateFromNow(-1), 8)
+		$sDateEnd = GetDateFromNow(-1)
 	Else
 		SendEmail("Выбран неправильный период формирования отчета (" & $sPeriod & ")", True)
 	EndIf
 
-	If Not IsArray($aNotifyReports) Then _
-		SendEmail("Массив для отчетов не содержит данных", True)
+;~ 	ParseRecommendData($sDateBegin, $sDateEnd)
+	ParseDoctorsQualityData($sDateBegin, $sDateEnd)
+EndFunc
 
-	Local $aArray = GetDataFromProLan($sDate1, $sDate2)
+
+Func ParseDoctorsQualityData($sDateBegin, $sDateEnd)
+	If Not IsArray($aCommercialDepartmentMailAddresses) Then _
+		SendEmail("Массив адресов коммерсантов не содержит данных", True)
+
+	Local $aReportsID[] = [$sReportIDTotal, $sReportIDPos, $sReportIDEmployee]
+
+	Local $sMessageHeaderFirstPart = '<b>Опрос (процедура): Пожалуйста, оцените качество приема у врача</b><br><br>' & _
+									 'Отчетный период: начало ' & $sDateBegin & ' конец ' & $sDateEnd & '<br><br>' & _
+									 '<table border="1" cellpadding="5" cellspacing="5">' & _
+									 '<tr>'
+
+	Local $aMessageHeaderMiddlePart[] = ['<th>опрос</th>', _
+										'<th>POS</th>', _
+										'<th>POS</th><th>Сотрудник</th>']
+
+	Local $sMessageHeaderLastPart = '<th>Отлично</th>' & _
+									'<th>Хорошо</th>' & _
+									'<th>Затрудняюсь ответить</th>' & _
+									'<th>Не очень</th>' & _
+									'<th>Плохо</th>' & _
+									'<th>% Отлично</th>' & _
+									'<th>% Хорошо</th>' & _
+									'<th>% Затрудняюсь ответить</th>' & _
+									'<th>% Не очень</th>' & _
+									'<th>% Плохо</th>' & _
+									'</tr>'
+
+	Local $sTemplate[] = ['<tr>' & _
+						'<td>Пожалуйста, оцените качество приема у врача</td>' & _
+						'<td>@0</td>' & _
+						'<td>@1</td>' & _
+						'<td>@2</td>' & _
+						'<td>@3</td>' & _
+						'<td>@4</td>' & _
+						'<td>@5</td>' & _
+						'<td>@6</td>' & _
+						'<td>@7</td>' & _
+						'<td>@8</td>' & _
+						'<td>@9</td>' & _
+						'</tr>', _
+						'<tr>' & _
+						'<td>@0</td>' & _
+						'<td>@1</td>' & _
+						'<td>@2</td>' & _
+						'<td>@3</td>' & _
+						'<td>@4</td>' & _
+						'<td>@5</td>' & _
+						'<td>@6</td>' & _
+						'<td>@7</td>' & _
+						'<td>@8</td>' & _
+						'<td>@9</td>' & _
+						'<td>@10</td>' & _
+						'</tr>', _
+						'<tr>' & _
+						'<td>@0</td>' & _
+						'<td>@1</td>' & _
+						'<td>@2</td>' & _
+						'<td>@3</td>' & _
+						'<td>@4</td>' & _
+						'<td>@5</td>' & _
+						'<td>@6</td>' & _
+						'<td>@7</td>' & _
+						'<td>@8</td>' & _
+						'<td>@9</td>' & _
+						'<td>@10</td>' & _
+						'<td>@11</td>' & _
+						'</tr>']
+
+	Local $sMessageBody = ""
+	Local $sMessageEnding = '</table>'
+	Local $sTitle = "Отчет по нажатиям кнопок лояльности"
+
+	For $i = 0 To UBound($aReportsID) - 1
+		Local $aArray = GetDataFromProLan($sDateBegin, $sDateEnd, $sQuestionIDDoctorsQuality, $aReportsID[$i])
+
+		Local $sMessageHeader = $sMessageHeaderFirstPart & _
+								$aMessageHeaderMiddlePart[$i] & _
+								$sMessageHeaderLastPart
+
+		Local $sMessage = ""
+		For $row = 0 To UBound($aArray, $UBOUND_ROWS) - 1
+			Local $sMessageRow = $sTemplate[$i]
+			For $column = 0 To UBound($aArray, $UBOUND_COLUMNS) - 1
+				$sMessageRow = StringReplace($sMessageRow, ">@" & $column & "<", ">" & $aArray[$row][$column] & "<")
+			Next
+			$sMessage &= $sMessageRow
+		Next
+
+		$sMessageBody &= $sMessageHeader & $sMessage & $sMessageEnding & "<br><br><br>"
+	Next
+
+	If $sMessageBody Then
+		Local $to = GetEmailAddresses($aCommercialDepartmentMailAddresses)
+		SendEmail($sMessageBody, False, $to, "", $sTitle)
+	Else
+		SendEmail("ParseDoctorsQualityData($sDateBegin, $sDateEnd)" & @CRLF & _
+			"Итоговая строка не содержит данных", True)
+	EndIf
+EndFunc
+
+
+Func ParseRecommendData($sDateBegin, $sDateEnd)
+	Local $aArray = GetDataFromProLan($sDateBegin, $sDateEnd, $sQuestionIDRecommendButton, $sReportIDPos)
+
+	If Not IsArray($aNotifyReports) Then _
+		SendEmail("Массив адресов главных врачей не содержит данных", True)
 
 	Local $sMessageHeader = '<b>Опрос: Порекомендуете ли Вы нашу клинику вашим друзьям и знакомым?</b><br><br>' & _
-						    'Отчетный период: начало ' & $sDate1 & ' конец ' & $sDate2 & '<br><br>' & _
+						    'Отчетный период: начало ' & $sDateBegin & ' конец ' & $sDateEnd & '<br><br>' & _
 						    '<table border="1" cellpadding="5" cellspacing="5">' & _
 						    '<tr>' & _
 						    '<th>POS</th>' & _
@@ -119,19 +233,17 @@ Func SendReports($sPeriod)
 						    '<th>% Затрудняюсь ответить</th>' & _
 							'</tr>'
 	Local $sTemplate = '<tr>' & _
-						   '<td>@0</td>' & _
-						   '<td>@1</td>' & _
-						   '<td>@2</td>' & _
-						   '<td>@3</td>' & _
-						   '<td>@4</td>' & _
-						   '<td>@5</td>' & _
-						   '<td>@6</td>' & _
-						   '</tr>'
+						'<td>@0</td>' & _
+						'<td>@1</td>' & _
+						'<td>@2</td>' & _
+						'<td>@3</td>' & _
+						'<td>@4</td>' & _
+						'<td>@5</td>' & _
+						'<td>@6</td>' & _
+						'</tr>'
 	Local $sMessageBody = ""
 	Local $sMessageEnding = '</table>'
 	Local $sTitle = "Отчет по нажатиям кнопок лояльности"
-
-;~ 	_ArrayDisplay($aArray)
 
 	For $i = 1 To UBound($aNotifyReports, $UBOUND_ROWS) - 1
 		Local $sCurrentPos = $aNotifyReports[$i][0]
@@ -147,8 +259,6 @@ Func SendReports($sPeriod)
 			$aArraySlice = _ArrayExtract($aArray, $nIndex, $nIndex)
 		EndIf
 
-;~ 		_ArrayDisplay($aArraySlice)
-
 		For $x = 0 To UBound($aArraySlice, $UBOUND_COLUMNS) - 1
 			$sMessage = StringReplace($sMessage, "@" & $x, $aArraySlice[0][$x])
 		Next
@@ -159,16 +269,23 @@ Func SendReports($sPeriod)
 			$aNotifyReports[$i][1], "", $sTitle)
 	Next
 
-	Local $sTo = ""
-	If IsArray($aNotifyReportsAlways) Then
-		For $i = 1 To UBound($aNotifyReportsAlways, $UBOUND_ROWS) - 1
-			$sTo &= $aNotifyReportsAlways[$i][1] & ";"
-		Next
-	EndIf
-
+	Local $sTo = GetEmailAddresses($aNotifyReportsAlways)
 	SendEmail($sMessageHeader & $sMessageBody & $sMessageEnding, False, _
 		$sTo, "", $sTitle)
+EndFunc
 
+
+Func GetEmailAddresses($aArray)
+	Local $sAddresses = ""
+	If Not IsArray($aArray) Or UBound($aArray, $UBOUND_ROWS) < 2 Then _
+		SendEmail("Func GetEmailAddresses($aArray)" & @CRLF & _
+			"Массив адресов указан неверно", True)
+
+	For $i = 1 To UBound($aArray, $UBOUND_ROWS) - 1
+		$sAddresses &= $aArray[$i][1] & ";"
+	Next
+
+	Return $sAddresses
 EndFunc
 
 
@@ -178,7 +295,7 @@ Func CheckLoyaltyReports()
 
 	Local $sDate1 = GetDateFromNow(-2)
 	Local $sDate2 = GetDateFromNow(-1)
-	Local $aArray = GetDataFromProLan($sDate1, $sDate2)
+	Local $aArray = GetDataFromProLan($sDate1, $sDate2, $sQuestionIDRecommendButton, $sReportIDPos)
 
 	For $i = 1 To UBound($aDailyCheck, $UBOUND_ROWS) - 1
 		Local $sCurrentPos = $aDailyCheck[$i][1]
@@ -196,31 +313,34 @@ Func CheckLoyaltyReports()
 EndFunc   ;==>CheckLoyaltyReports
 
 
-Func GetDataFromProLan($sDate1, $sDate2)
+Func GetDataFromProLan($sDateBegin, $sDateEnd, $sQuestionID, $sReportID)
 	Local $strUrl = "http://911.prolan.ru/saas/reports/report.php"
-	Local $strReportID = "POS"
-	Local $strDtBegin = $sDate1 & " 00:00:00"
-	Local $strDtEnd = $sDate2 & " 23:59:59"
+	Local $strDtBegin = $sDateBegin & " 00:00:00"
+	Local $strDtEnd = $sDateEnd & " 23:59:59"
+
 	Local $strUseUTC = "0"
-	Local $strLoginName = "ClinicLMC_R"
-	Local $strPassword = "XkVd5x54"
-	Local $nQuestionID = 37
-	Local $strProxy = "172.16.6.1:8080"
+	Local $strLoginName = ""
+	Local $strPassword = ""
+	Local $strProxy = ""
 
 	Local $strBody = "LoginName=" & $strLoginName & _
 			"&Password=" & $strPassword & _
-			"&QuestionID=" & $nQuestionID & _
-			"&ReportID=" & $strReportID & _
+			"&QuestionID=" & $sQuestionID & _
+			"&ReportID=" & $sReportID & _
 			"&Begin=" & $strDtBegin & _
 			"&End=" & $strDtEnd & _
 			"&UseUTC=" & $strUseUTC
+
+	Local $sKey = "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+	Local $sValue = RegRead($sKey, "ProxyServer")
+	If $sValue <> "" Then $strProxy = $sValue
 
 	Local $strXmlResponse = HttpPost($strUrl, $strBody, $strProxy)
 
 	If Not $strXmlResponse Then _
 			SendEmail("Не удалось получить данные с сайта" & @CRLF & @CRLF & _
 			"Параметры запроса:" & @CRLF & $strUrl & @CRLF & _
-			$strDtBegin & @CRLF & $strDtEnd & @CRLF & $strReportID & " " & $nQuestionID & @CRLF & _
+			$strDtBegin & @CRLF & $strDtEnd & @CRLF & $sReportID & " " & $sQuestionID & @CRLF & _
 			"Прокси: " & $strProxy, True)
 
 	Local $strFileName = @ScriptDir & "\response.xml"
@@ -236,18 +356,32 @@ Func GetDataFromProLan($sDate1, $sDate2)
 			SendEmail("Полученный массив не соответствует заданной ширине: " & @CRLF & _
 			_ArrayToString($resultArray), True)
 
-	Local $result[0][7]
+	Local $nResultsLenght = 6
+	If $sQuestionID = $sQuestionIDDoctorsQuality Then
+		If $sReportID = $sReportIDEmployee Then $nResultsLenght = 11
+		If $sReportID = $sReportIDPos Then $nResultsLenght = 10
+		If $sReportID = $sReportIDTotal Then $nResultsLenght = 9
+	EndIf
+
+	Local $result[0][$nResultsLenght + 1]
+
+;~ 	_ArrayDisplay($resultArray)
 
 	For $i = 1 To UBound($resultArray, $UBOUND_ROWS) - 1
-		Local $tmpArray[1][7]
+		Local $tmpArray[1][$nResultsLenght + 1]
+;~ 		_ArrayDisplay($tmpArray)
 
-		For $x = 0 To 6
+		For $x = 0 To $nResultsLenght
 			$tmpArray[0][$x] = $resultArray[$i + $x][3]
 		Next
 
+;~ 		_ArrayDisplay($tmpArray)
+
 		_ArrayAdd($result, $tmpArray)
-		$i += 6
+		$i += $nResultsLenght
 	Next
+
+;~ 	_ArrayDisplay($result)
 
 	If IsArray($result) Then Return $result
 
@@ -286,13 +420,22 @@ Func HttpPost($sURL, $sData = "", $strProxy = "")
 
 	If (@error) Then Return SetError(1, 0, 0)
 
+;~ 	ConsoleWrite($sData & @CRLF)
+
 	$oHTTP.SetRequestHeader("Content-Type", "application/x-www-form-urlencoded")
 	$oHTTP.SetRequestHeader("RequestType", "GetXmlLoyaltyReport")
 	$oHTTP.SetRequestHeader("Content-Length", StringLen($sData))
 
 	$oHTTP.Send($sData)
+
+;~ 	ConsoleWrite($oHTTP.GetResponseHeader("CompletionCode") & @CRLF)
+;~ 	ConsoleWrite($oHTTP.GetResponseHeader("ErrorDescription") & @CRLF)
+;~ 	ConsoleWrite($oHTTP.ResponseText & @CRLF)
+;~ 	Exit
+
 	If (@error) Then Return SetError(2, 0, 0)
 	If ($oHTTP.Status <> 200) Then Return SetError(3, 0, 0)
+;~ 	ConsoleWrite($oHTTP.ResponseText & @CRLF)
 	Return SetError(0, 0, $oHTTP.ResponseText)
 EndFunc   ;==>HttpPost
 
@@ -310,6 +453,8 @@ EndFunc   ;==>ComErrorHandle
 
 
 Func SendEmail($sMessage, $bError = False, $sTo = "", $sCopy = "", $sTitle = "")
+
+;~ 	MsgBox(0, "", "sendmail")
 	Local $sCurrentPcName = @ComputerName
 	Local $sFrom = "Система отчетов по кнопкам лояльности"
 	If Not $sTitle Then $sTitle = "Внимание! Имеются ошибки!"
@@ -326,21 +471,14 @@ Func SendEmail($sMessage, $bError = False, $sTo = "", $sCopy = "", $sTitle = "")
 
 	If Not $sTo Then
 		If IsArray($aNotifyDailyErrors) Then
-			$sTo = ""
-			For $i = 1 To UBound($aNotifyDailyErrors, $UBOUND_ROWS) - 1
-				$sTo &= $aNotifyDailyErrors[$i][1] & ";"
-			Next
+			$sTo = GetEmailAddresses($aNotifyDailyErrors)
 		Else
-			$sTo = "stp@7828882.ru"
+			$sTo = ""
 		EndIf
 	EndIf
 
-	If Not $sCopy Then $sCopy = "nn-admin@bzklinika.ru"
+	If Not $sCopy Then $sCopy = ""
 	If $bError Then $sTo = $sCopy
-
-	ConsoleWrite($sMessage & @CRLF & $sTo & @CRLF & $sCopy & @CRLF & $sTitle & @CRLF & "------" & @CRLF)
-
-	Return
 
 	If Not _INetSmtpMailCom($sMailServer, $sFrom, $sMailLogin, $sTo, _
 			$sTitle, $sMessage, "", $sCopy, "", $sMailLogin, $sMailPassword) Then _
