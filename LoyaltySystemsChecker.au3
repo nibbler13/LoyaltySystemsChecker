@@ -1,11 +1,11 @@
 #Region ;**** Directives created by AutoIt3Wrapper_GUI ****
 #AutoIt3Wrapper_Icon=icon.ico
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
-#pragma compile(ProductVersion, 3.1)
+#pragma compile(ProductVersion, 3.2)
 #pragma compile(UPX, true)
 #pragma compile(CompanyName, 'ООО Клиника ЛМС')
 #pragma compile(FileDescription, Приложение для создания отчетов по кнопкам лояльности)
-#pragma compile(LegalCopyright, Грашкин Павел Павлович - Нижний Новгород - 31-555 - nn-admin@nnkk.budzdorov.su)
+#pragma compile(LegalCopyright,)
 #pragma compile(ProductName, LoyaltySystemsChecker)
 
 
@@ -23,10 +23,12 @@ $oMyError = ObjEvent("AutoIt.Error", "ComErrorHandle")
 
 
 #Region ====== variables ======
-Local $sMailServerBackup = ""
-Local $sMailLoginBackup = ""
-Local $sMailPasswordBackup = ""
-Local $sDeveloperEmail = ""
+Local $aErrorNotify = 0
+
+Local $sMailServerBackup = "smtp.budzdorov.ru"
+Local $sMailLoginBackup = "infoscreen_screenshots_viewer@nnkk.budzdorov.su"
+Local $sMailPasswordBackup = "paqafapy"
+Local $sDeveloperEmail = "nn-admin@bzklinika.ru"
 
 Local $sIniFileName = @ScriptDir & "\settings.ini"
 If Not FileExists($sIniFileName) Then _
@@ -34,6 +36,9 @@ If Not FileExists($sIniFileName) Then _
 
 Local $sSectionDebug = "debug_mode"
 Local $bDebug = (IniRead($sIniFileName, $sSectionDebug, "debug", False) = "1" ? True : False)
+
+Local $sSectionErrorNotify = "error_notify"
+$aErrorNotify = IniReadSection($sIniFileName, $sSectionErrorNotify)
 
 Local $sSectionMail = "mail"
 Local $sMailServer = IniRead($sIniFileName, $sSectionMail, "server", $sMailLoginBackup)
@@ -65,12 +70,8 @@ Local $aNotifyDailyErrors = IniReadSection($sIniFileName, $sSectionNotifyDailyEr
 Local $sSectionDailyCheck = "daily_check"
 Local $aDailyCheck = IniReadSection($sIniFileName, $sSectionDailyCheck)
 
-;~ Local $sSectionCommercialDepartment = "commercial_department"
-;~ Local $aCommercialDepartmentMailAddresses = IniReadSection($sIniFileName, $sSectionCommercialDepartment)
-
 Local $sSectionClinicsNameConformity = "clinics_name_conformity"
 Local $aCilincsNameConformity = IniReadSection($sIniFileName, $sSectionClinicsNameConformity)
-;~ _ArrayDisplay($aCilincsNameConformity)
 
 Local $aClinicsNamesAndAddressess[0][2]
 For $i = 1 To UBound($aCilincsNameConformity, $UBOUND_ROWS) - 1
@@ -80,9 +81,6 @@ For $i = 1 To UBound($aCilincsNameConformity, $UBOUND_ROWS) - 1
 	_ArrayAdd($aClinicsNamesAndAddressess, $aCurrentClinic)
 Next
 
-;~ _ArrayDisplay($aClinicsNamesAndAddressess)
-;~ Exit
-
 Local $sQuestionIDRecommendButton = "37"
 Local $sQuestionIDDoctorsQuality = "152"
 Local $sReportIDTotal = "TOTAL"
@@ -90,7 +88,6 @@ Local $sReportIDPos = "POS"
 Local $sReportIDEmployee = "EMPLOYEE"
 #EndRegion ====== variables ======
 
-;~ Exit
 
 If $CmdLine[0] Then
 	If $CmdLine[1] = "-week" Then SendReports("week")
@@ -124,15 +121,12 @@ Func SendReports($sPeriod)
 		SendEmail("Выбран неправильный период формирования отчета (" & $sPeriod & ")", True)
 	EndIf
 
-	ConsoleWrite("SendReports: " & $sDateBegin & " " & $sDateEnd & @CRLF)
-
 	ParseRecommendData($sDateBegin, $sDateEnd)
 	ParseDoctorsQualityData($sDateBegin, $sDateEnd)
 EndFunc
 
 
 Func ParseDoctorsQualityData($sDateBegin, $sDateEnd)
-	ConsoleWrite("ParseDoctorsQualityData" & @CRLF)
 	If Not IsArray($aClinicsNamesAndAddressess) Then _
 		SendEmail("Массив адресов для рассылки отчетов по мониторам лояльности не содержит данных", True)
 
@@ -149,22 +143,17 @@ Func ParseDoctorsQualityData($sDateBegin, $sDateEnd)
 	Local $aDataFromProlan[UBound($aReportsID)]
 	For $i = 0 To UBound($aReportsID) - 1
 		$aDataFromProlan[$i] = GetDataFromProLan($sDateBegin, $sDateEnd, $sQuestionIDDoctorsQuality, $aReportsID[$i])
-;~ 		$aDataFromProlan[$i] = GetDataFromProLan($sDateEnd, $sDateEnd, $sQuestionIDDoctorsQuality, $aReportsID[$i])
 	Next
 
 	For $i = 0 To UBound($aClinicsNamesAndAddressess, $UBOUND_ROWS) - 1
-		ConsoleWrite("$i: " & $aClinicsNamesAndAddressess[$i][0] & @CRLF)
 		Local $oBook = _Excel_BookOpen($oExcel, $sExcelTemplateFullPath)
 		If Not IsObj($oBook) Then _
 			SendEmail("Не удается открыть книгу: " & $sExcelTemplateFullPath, True)
 
 		Local $sCurrentName = $aClinicsNamesAndAddressess[$i][0]
 
-
-
 		Local $aCurrentMarks = 0
 		For $x = UBound($aDataFromProlan) - 1 To 0 Step -1
-			ConsoleWrite("$x: " & $aReportsID[$x] & @CRLF)
 			Local $nExcelOffset = 0
 			If $aReportsID[$x] = $sReportIDTotal Then $nExcelOffset = 1
 
@@ -177,11 +166,9 @@ Func ParseDoctorsQualityData($sDateBegin, $sDateEnd)
 			Local $aCurrentArray = $aDataFromProlan[$x]
 			If $sCurrentName <> "*" Then
 				If $aReportsID[$x] = $sReportIDTotal Then
-					If IsArray($aCurrentMarks) Then
-;~ 						_ArrayDisplay($aCurrentMarks)
-						$aCurrentArray = _ArrayExtract($aCurrentMarks, 0, 0, UBound($aCurrentMarks, $UBOUND_COLUMNS) - 10, UBound($aCurrentMarks, $UBOUND_COLUMNS) - 1)
-;~ 						_ArrayDisplay($aCurrentArray)
-					EndIf
+					If IsArray($aCurrentMarks) Then _
+						$aCurrentArray = _ArrayExtract($aCurrentMarks, 0, 0, UBound($aCurrentMarks, $UBOUND_COLUMNS) - 10, _
+							UBound($aCurrentMarks, $UBOUND_COLUMNS) - 1)
 				Else
 					$aCurrentArray = GetDataFromArrayByClinicName($aCurrentArray, $sCurrentName, $nFirstMarkColumn, $aCurrentMarks)
 				EndIf
@@ -203,8 +190,8 @@ Func ParseDoctorsQualityData($sDateBegin, $sDateEnd)
 		_Excel_BookClose($oBook, False)
 
 		If Not FileExists($sResultFileFullPath) Then _
-		SendEmail("Не удалось создать файл отчета: " & _
-			$sResultFileFullPath, True)
+			SendEmail("Не удалось создать файл отчета: " & _
+				$sResultFileFullPath, True)
 
 		Local $sTitle = "Отчет по монитору лояльности"
 		Local $sMessage = "Отчет за период с " & $sDateBegin & " по " & $sDateEnd & " во вложении"
@@ -218,8 +205,6 @@ Func ParseDoctorsQualityData($sDateBegin, $sDateEnd)
 EndFunc
 
 Func GetDataFromArrayByClinicName($aArray, $sName, $nFirstMarkColumn, ByRef $aTotalMarks)
-	ConsoleWrite($sName & @CRLF)
-;~ 	_ArrayDisplay($aArray)
 	Local $aReturnArray[0][UBound($aArray, $UBOUND_COLUMNS)]
 	Local $aMarks = [0, 0, 0, 0, 0]
 
@@ -249,16 +234,12 @@ Func GetDataFromArrayByClinicName($aArray, $sName, $nFirstMarkColumn, ByRef $aTo
 
 	_ArrayAdd($aReturnArray, $aLastRow)
 
-;~ 	_ArrayDisplay($aReturnArray)
-;~ 	_ArrayDisplay($aMarks)
-
 	$aTotalMarks = $aLastRow
 	Return $aReturnArray
 EndFunc
 
 
 Func ParseRecommendData($sDateBegin, $sDateEnd)
-	ConsoleWrite("ParseRecommendData" & @CRLF)
 	Local $aArray = GetDataFromProLan($sDateBegin, $sDateEnd, $sQuestionIDRecommendButton, $sReportIDPos)
 
 	If Not IsArray($aNotifyReports) Then _
@@ -276,6 +257,7 @@ Func ParseRecommendData($sDateBegin, $sDateEnd)
 						    '<th>% Нет</th>' & _
 						    '<th>% Затрудняюсь ответить</th>' & _
 							'</tr>'
+
 	Local $sTemplate = '<tr>' & _
 						'<td>@0</td>' & _
 						'<td>@1</td>' & _
@@ -358,7 +340,6 @@ EndFunc   ;==>CheckLoyaltyReports
 
 
 Func GetDataFromProLan($sDateBegin, $sDateEnd, $sQuestionID, $sReportID)
-	ConsoleWrite("GetDataFromProLan: " & $sQuestionID & " " & $sReportID & @CRLF)
 	Local $strUrl = "http://911.prolan.ru/saas/reports/report.php"
 	Local $strDtBegin = $sDateBegin & " 00:00:00"
 	Local $strDtEnd = $sDateEnd & " 23:59:59"
@@ -380,18 +361,17 @@ Func GetDataFromProLan($sDateBegin, $sDateEnd, $sQuestionID, $sReportID)
 	Local $sValue = RegRead($sKey, "ProxyServer")
 	If $sValue <> "" Then $strProxy = $sValue
 
-	ConsoleWrite("Body: " & $strBody & @CRLF)
 	Local $strXmlResponse = HttpPost($strUrl, $strBody, $strProxy)
 
 	If Not $strXmlResponse Then _
 			SendEmail("Не удалось получить данные с сайта" & @CRLF & @CRLF & _
-			"Параметры запроса:" & @CRLF & $strUrl & @CRLF & _
-			$strDtBegin & @CRLF & $strDtEnd & @CRLF & $sReportID & " " & $sQuestionID & @CRLF & _
-			"Прокси: " & $strProxy, True)
+				"Параметры запроса:" & @CRLF & $strUrl & @CRLF & _
+				$strDtBegin & @CRLF & $strDtEnd & @CRLF & $sReportID & " " & $sQuestionID & @CRLF & _
+				"Прокси: " & $strProxy, True)
 
 	Local $strFileName = @ScriptDir & "\response.xml"
 	If FileExists($strFileName) Then FileDelete($strFileName)
-	Sleep(3000)
+
 	Local $hFile = FileOpen($strFileName, BitOR($FO_OVERWRITE, $FO_ANSI))
 	FileWrite($hFile, $strXmlResponse)
 	FileClose($hFile)
@@ -412,8 +392,6 @@ Func GetDataFromProLan($sDateBegin, $sDateEnd, $sQuestionID, $sReportID)
 	EndIf
 
 	Local $result[0][$nResultsLenght + 1]
-
-;~ 	_ArrayDisplay($resultArray)
 
 	For $i = 1 To UBound($resultArray, $UBOUND_ROWS) - 1
 		Local $tmpArray[1][$nResultsLenght + 1]
@@ -466,22 +444,15 @@ Func HttpPost($sURL, $sData = "", $strProxy = "")
 
 	If (@error) Then Return SetError(1, 0, 0)
 
-;~ 	ConsoleWrite($sData & @CRLF)
-
 	$oHTTP.SetRequestHeader("Content-Type", "application/x-www-form-urlencoded")
 	$oHTTP.SetRequestHeader("RequestType", "GetXmlLoyaltyReport")
 	$oHTTP.SetRequestHeader("Content-Length", StringLen($sData))
 
 	$oHTTP.Send($sData)
 
-;~ 	ConsoleWrite($oHTTP.GetResponseHeader("CompletionCode") & @CRLF)
-;~ 	ConsoleWrite($oHTTP.GetResponseHeader("ErrorDescription") & @CRLF)
-;~ 	ConsoleWrite($oHTTP.ResponseText & @CRLF)
-;~ 	Exit
-
 	If (@error) Then Return SetError(2, 0, 0)
 	If ($oHTTP.Status <> 200) Then Return SetError(3, 0, 0)
-;~ 	ConsoleWrite($oHTTP.ResponseText & @CRLF)
+
 	Return SetError(0, 0, $oHTTP.ResponseText)
 EndFunc   ;==>HttpPost
 
@@ -499,17 +470,6 @@ EndFunc   ;==>ComErrorHandle
 
 
 Func SendEmail($sMessage, $bError = False, $sTo = "", $sCopy = "", $sTitle = "", $sAttachments = "")
-
-
-
-	ConsoleWrite("SendEmail:" & $sMessage & @CRLF)
-	ConsoleWrite("To: " & $sTo & @CRLF)
-	ConsoleWrite("Copy: " & $sCopy & @CRLF)
-	ConsoleWrite("Attachment: " & $sAttachments & @CRLF)
-;~ 	Return
-
-
-
 	Local $sCurrentPcName = @ComputerName
 	Local $sFrom = "Система отчетов по кнопкам лояльности"
 	If Not $sTitle Then $sTitle = "Внимание! Имеются ошибки!"
@@ -528,17 +488,30 @@ Func SendEmail($sMessage, $bError = False, $sTo = "", $sCopy = "", $sTitle = "",
 		If IsArray($aNotifyDailyErrors) Then
 			$sTo = GetEmailAddresses($aNotifyDailyErrors)
 		Else
-			$sTo = "stp@7828882.ru"
+			$sTo = ""
 		EndIf
 	EndIf
 
-	If $bDebug Then
-		$sTo = "nn-admin@bzklinika.ru"
+	If Not $sCopy Then $sCopy = $sDeveloperEmail
+
+	If $bError Then
+		$sTo = ""
+
+		If IsArray($aErrorNotify) Then
+			For $i = 1 To UBound($aErrorNotify, $UBOUND_ROWS) - 1
+				$sTo &= $aErrorNotify[$i][1] & ";"
+			Next
+		Else
+			$sTo = $sDeveloperEmail
+		EndIf
+
 		$sCopy = ""
 	EndIf
 
-	If Not $sCopy Then $sCopy = "nn-admin@bzklinika.ru"
-	If $bError Then $sTo = $sCopy
+	If $bDebug Then
+		$sTo = $sDeveloperEmail
+		$sCopy = ""
+	EndIf
 
 	If Not _INetSmtpMailCom($sMailServer, $sFrom, $sMailLogin, $sTo, _
 			$sTitle, $sMessage, $sAttachments, $sCopy, "", $sMailLogin, $sMailPassword) Then _
